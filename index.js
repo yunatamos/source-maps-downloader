@@ -4,14 +4,35 @@ const axios = require('axios');
 const sourceMap = require('source-map');
 const puppeteer = require('puppeteer');
 const { URL } = require('url');
+const { PuppeteerScreenRecorder } = require('puppeteer-screen-recorder');
 
-async function downloadSourceMaps(websiteUrl) {
+async function downloadSourceMaps(websiteUrl, shouldRecord) {
   try {
     const baseUrl = new URL(websiteUrl);
     const browser = await puppeteer.launch({
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     const page = await browser.newPage();
+
+    let recorder;
+    if (shouldRecord) {
+      const Config = {
+        followNewTab: true,
+        fps: 25,
+        ffmpeg_Path:  null,
+        videoFrame: {
+          width: 1190,
+          height: 1080,
+        },
+       // aspectRatio: '4:3',
+      };
+
+      // Initialize screen recorder
+      recorder = new PuppeteerScreenRecorder(page, Config);
+      await recorder.start(`screenRecordings/screen-recording-${baseUrl.hostname}.mp4`);
+      console.log('Screen recording started.');
+    }
+
     // Collect all script URLs, including lazy-loaded ones
     const scriptUrls = new Set();
     page.on('response', async (response) => {
@@ -21,14 +42,25 @@ async function downloadSourceMaps(websiteUrl) {
         scriptUrls.add(url);
       }
     });
-    await page.goto(websiteUrl, { waitUntil: 'networkidle0' });
+    await page.goto(websiteUrl, {
+      waitUntil: ['load', 'networkidle0', "domcontentloaded"],
+      //timeout: 120000
+    });
     // Wait a bit more to capture any delayed lazy-loaded scripts
     await new Promise(resolve => setTimeout(resolve, 5000));
-    await browser.close();
+
     // Process all collected script URLs
     for (const scriptUrl of scriptUrls) {
       await processJavaScriptFile(scriptUrl, baseUrl);
     }
+
+    if (shouldRecord) {
+      // Stop recording at the end of the Puppeteer session
+      await recorder.stop();
+      console.log('Screen recording stopped.');
+    }
+
+    await browser.close();
     console.log('All source maps downloaded and extracted successfully.');
   } catch (error) {
     console.error('Error:', error.message);
@@ -72,18 +104,29 @@ async function processJavaScriptFile(jsUrl, baseUrl) {
 // Main execution
 function main() {
   const args = process.argv.slice(2);
-  if (args.length !== 2 || args[0] !== '--url') {
-    console.log('Usage: node index.js --url <domain>');
+  let websiteUrl;
+  let shouldRecord = false;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--url' && i + 1 < args.length) {
+      websiteUrl = args[i + 1];
+      i++;
+    } else if (args[i] === '--record') {
+      shouldRecord = true;
+    }
+  }
+
+  if (!websiteUrl) {
+    console.log('Usage: node index.js --url <domain> [--record]');
     process.exit(1);
   }
 
-  const websiteUrl = args[1];
   if (!websiteUrl.startsWith('http://') && !websiteUrl.startsWith('https://')) {
     console.log('Please provide a full URL including the protocol (http:// or https://)');
     process.exit(1);
   }
 
-  downloadSourceMaps(websiteUrl);
+  downloadSourceMaps(websiteUrl, shouldRecord);
 }
 
 main();
