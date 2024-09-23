@@ -24,30 +24,27 @@ async function downloadSourceMaps(websiteUrl, shouldRecord) {
           width: 1190,
           height: 1080,
         },
-       // aspectRatio: '4:3',
       };
 
-      // Initialize screen recorder
       recorder = new PuppeteerScreenRecorder(page, Config);
       await recorder.start(`screenRecordings/screen-recording-${baseUrl.hostname}.mp4`);
       console.log('Screen recording started.');
     }
 
-    // Collect all script URLs, including lazy-loaded ones
-    const scriptUrls = new Set();
+    // Collect all script and CSS URLs, including lazy-loaded ones
+    const resourceUrls = new Set();
     page.on('response', async (response) => {
       const url = response.url();
       const contentType = response.headers()['content-type'];
-      if (contentType && contentType.includes('application/javascript')) {
-        scriptUrls.add(url);
+      if (contentType && (contentType.includes('application/javascript') || contentType.includes('text/css'))) {
+        resourceUrls.add(url);
       }
     });
-    const timeout =30000
-    // Navigate to the page with a more flexible approach
+
+    const timeout = 30000;
     try {
       await page.goto(websiteUrl, { timeout: timeout });
 
-      // Wait for the page to be considered loaded
       await Promise.race([
         page.waitForNavigation({ waitUntil: 'load', timeout: timeout }),
         page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: timeout }),
@@ -58,16 +55,14 @@ async function downloadSourceMaps(websiteUrl, shouldRecord) {
       console.warn(`Navigation encountered an issue: ${error.message}. Proceeding with content extraction.`);
     }
 
-    // Wait a bit more to capture any delayed lazy-loaded scripts
     await new Promise(resolve => setTimeout(resolve, 5000));
 
-    // Process all collected script URLs
-    for (const scriptUrl of scriptUrls) {
-      await processJavaScriptFile(scriptUrl, baseUrl);
+    // Process all collected resource URLs
+    for (const resourceUrl of resourceUrls) {
+      await processResource(resourceUrl, baseUrl);
     }
 
     if (shouldRecord) {
-      // Stop recording at the end of the Puppeteer session
       await recorder.stop();
       console.log('Screen recording stopped.');
     }
@@ -79,41 +74,40 @@ async function downloadSourceMaps(websiteUrl, shouldRecord) {
   }
 }
 
-async function processJavaScriptFile(jsUrl, baseUrl) {
+async function processResource(resourceUrl, baseUrl) {
   try {
-    console.log(`Processing: ${jsUrl}`);
-    const response = await axios.get(jsUrl);
-    const jsContent = response.data;
-    const sourceMapUrlMatch = jsContent.match(/\/\/# sourceMappingURL=(.+)/);
+    console.log(`Processing: ${resourceUrl}`);
+    const response = await axios.get(resourceUrl);
+    const content = response.data;
+    const sourceMapUrlMatch = content.match(/\/\*#\s*sourceMappingURL=(.+?)\s*\*\/|\/\/# sourceMappingURL=(.+)/);
     if (!sourceMapUrlMatch) {
-      console.warn(`No source map reference found for ${jsUrl}`);
+      console.warn(`No source map reference found for ${resourceUrl}`);
       return;
     }
-    const sourceMapUrl = new URL(sourceMapUrlMatch[1], jsUrl).toString();
+    const sourceMapUrl = new URL(sourceMapUrlMatch[1] || sourceMapUrlMatch[2], resourceUrl).toString();
     const sourceMapResponse = await axios.get(sourceMapUrl);
     const sourceMapData = sourceMapResponse.data;
     const consumer = await new sourceMap.SourceMapConsumer(sourceMapData);
     const sources = consumer.sources;
     for (const source of sources) {
-      const content = consumer.sourceContentFor(source);
-      if (content) {
+      const sourceContent = consumer.sourceContentFor(source);
+      if (sourceContent) {
         const sourceUrl = new URL(source, baseUrl);
         const filePath = path.join('sources', sourceUrl.hostname, sourceUrl.pathname);
         await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, content);
+        await fs.writeFile(filePath, sourceContent);
       }
     }
-    // Save the compiled JS file as well
-    const jsFilePath = path.join('sources', baseUrl.hostname, new URL(jsUrl).pathname);
-    await fs.mkdir(path.dirname(jsFilePath), { recursive: true });
-    await fs.writeFile(jsFilePath, jsContent);
-    console.log(`Source map processed for ${jsUrl}`);
+    // Save the compiled resource file as well
+    const resourceFilePath = path.join('sources', baseUrl.hostname, new URL(resourceUrl).pathname);
+    await fs.mkdir(path.dirname(resourceFilePath), { recursive: true });
+    await fs.writeFile(resourceFilePath, content);
+    console.log(`Source map processed for ${resourceUrl}`);
   } catch (error) {
-    console.error(`Error processing ${jsUrl}:`, error.message);
+    console.error(`Error processing ${resourceUrl}:`, error.message);
   }
 }
 
-// Main execution
 function main() {
   const args = process.argv.slice(2);
   let websiteUrl;
