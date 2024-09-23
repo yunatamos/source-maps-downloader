@@ -42,10 +42,22 @@ async function downloadSourceMaps(websiteUrl, shouldRecord) {
         scriptUrls.add(url);
       }
     });
-    await page.goto(websiteUrl, {
-      waitUntil: ['load', 'networkidle0', "domcontentloaded"],
-      //timeout: 120000
-    });
+    const timeout =30000
+    // Navigate to the page with a more flexible approach
+    try {
+      await page.goto(websiteUrl, { timeout: timeout });
+
+      // Wait for the page to be considered loaded
+      await Promise.race([
+        page.waitForNavigation({ waitUntil: 'load', timeout: timeout }),
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: timeout }),
+        page.waitForNavigation({ waitUntil: 'networkidle0', timeout: timeout }),
+        new Promise(resolve => setTimeout(resolve, timeout))
+      ]);
+    } catch (error) {
+      console.warn(`Navigation encountered an issue: ${error.message}. Proceeding with content extraction.`);
+    }
+
     // Wait a bit more to capture any delayed lazy-loaded scripts
     await new Promise(resolve => setTimeout(resolve, 5000));
 
