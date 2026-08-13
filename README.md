@@ -1,3 +1,5 @@
+
+
 # Source Map Downloader
 
 An intelligent Node.js tool that extracts source maps from modern web applications (React, Vue, Angular, etc.). Unlike simple network sniffers, this tool **parses JavaScript bundles to discover ALL chunks**, including lazy-loaded ones that may never be triggered during a normal browsing session.
@@ -11,6 +13,7 @@ An intelligent Node.js tool that extracts source maps from modern web applicatio
 - **Network Monitoring**: Also captures JS files loaded via network requests
 - **Source Reconstruction**: Extracts original source files from source maps
 - **Optional Screen Recording**: Record browser session for debugging
+- **Interactive Extraction**: Includes `min.js` to process individual source maps via an interactive terminal prompt
 - **Organized Output**: Saves source maps, original sources, and compiled JS separately
 
 ## Prerequisites
